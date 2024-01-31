@@ -6,11 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -47,21 +45,6 @@ func CloseDB() error {
 }
 
 func MakeAnswer(w http.ResponseWriter, r *http.Request) {
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		return
-	}
-	defer r.Body.Close()
-
-	parts := strings.Split(string(body), "=")
-	if len(parts) > 1 {
-		if parts[1] != "xg12j4" {
-			http.Error(w, "Неправильный секретный ключ", http.StatusBadRequest)
-			return
-		}
-	} else {
-		fmt.Println("Key not found")
-	}
 	url := "http://0.0.0.0:8000/actions/process/response"
 
 	pk := r.URL.Query().Get("pk")
@@ -115,13 +98,14 @@ func MakeAnswer(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			fmt.Println(string(jsonAction))
-
-			req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(jsonAction))
+			// "xg12j4"
+			req, err := http.NewRequest(http.MethodPut, url, bytes.NewBuffer(jsonAction))
 			if err != nil {
 				// обработка ошибки
 				return
 			}
-			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Secret-Key", "xg12j4")
+			req.Header.Add("Content-Type", "application/json")
 
 			client := &http.Client{}
 			resp, err := client.Do(req)

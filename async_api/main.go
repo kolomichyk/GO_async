@@ -2,107 +2,64 @@ package main
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
-	"strconv"
-	"time"
 
 	_ "github.com/lib/pq"
 )
 
 type ApplicationAction struct {
 	ID            int
-	TypeAction    sql.NullString
+	TypeAction    string
 	Description   string
 	ActionID      int
 	ApplicationID int
 }
 
-var db *sql.DB
-
-func init() {
-	var err error
-	connectionString := "postgres://lab2:lab2@localhost:8081/rip2?sslmode=disable"
-	db, err = sql.Open("postgres", connectionString)
-	if err != nil {
-		panic(err)
-	}
-
-	err = db.Ping()
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println("Successfully connected to database")
-}
-
-func CloseDB() error {
-	return db.Close()
-}
-
 func MakeAnswer(w http.ResponseWriter, r *http.Request) {
 	url := "http://0.0.0.0:8000/actions/process/response"
 
-	pk := r.URL.Query().Get("pk")
-	if pk == "" {
-		http.Error(w, "Missing 'pk' parameter", http.StatusBadRequest)
-		return
-	}
-
-	// Преобразование pk в int
-	pkInt, err := strconv.Atoi(pk)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "Invalid 'pk' parameter", http.StatusBadRequest)
+		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
 		return
 	}
 
-	// Отправляем ответ HTTP с кодом состояния 203, указывающим на то, что процесс продолжается
+	fmt.Println("Request Body:", string(body))
+
+	// Проверяем, что тело запроса содержит данные
+	if len(body) == 0 {
+		http.Error(w, "Empty request body", http.StatusBadRequest)
+		return
+	}
+
+	// Теперь мы ожидаем массив объектов ApplicationAction
+	var actions []ApplicationAction
+	err = json.Unmarshal(body, &actions)
+	if err != nil {
+		http.Error(w, "Invalid JSON in request body", http.StatusBadRequest)
+		return
+	}
+	fmt.Println("OK")
 	w.WriteHeader(http.StatusNonAuthoritativeInfo)
 	w.Write([]byte("Processing..."))
 
-	// Начинаем работу в новой горутине
 	go func() {
-		rows, err := db.Query("SELECT * FROM applications_actions WHERE application_id = $1", pkInt)
-		if err != nil {
-			// Обработка ошибки
-			return
-		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var action ApplicationAction
-			err := rows.Scan(&action.ID, &action.TypeAction, &action.Description, &action.ActionID, &action.ApplicationID)
+		// Обрабатываем каждый объект в массиве
+		for _, action := range actions {
+			jsonAction, err := json.Marshal(action)
 			if err != nil {
 				// Обработка ошибки
-				return
-			}
-			rand.Seed(time.Now().UnixNano())
-			randomNumber := rand.Intn(5) + 1
-			time.Sleep(time.Duration(randomNumber) * time.Second)
-
-			tmp := ApplicationAction{
-				ID:            action.ID,
-				TypeAction:    action.TypeAction,
-				Description:   "Какой-то ответ",
-				ActionID:      action.ActionID,
-				ApplicationID: action.ApplicationID,
-			}
-
-			jsonAction, err := json.Marshal(tmp)
-			if err != nil {
-				// Обработка ошибки
-				return
+				continue
 			}
 			fmt.Println(string(jsonAction))
 			// "xg12j4"
 			req, err := http.NewRequest(http.MethodPut, url, bytes.NewBuffer(jsonAction))
 			if err != nil {
 				// обработка ошибки
-				return
+				continue
 			}
 			req.Header.Set("Secret-Key", "xg12j4")
 			req.Header.Add("Content-Type", "application/json")
@@ -111,14 +68,14 @@ func MakeAnswer(w http.ResponseWriter, r *http.Request) {
 			resp, err := client.Do(req)
 			if err != nil {
 				// обработка ошибки
-				return
+				continue
 			}
 			defer resp.Body.Close()
 
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				// Обработка ошибки
-				return
+				continue
 			}
 
 			fmt.Println("response Body:", string(body))
@@ -129,5 +86,4 @@ func MakeAnswer(w http.ResponseWriter, r *http.Request) {
 func main() {
 	http.HandleFunc("/makeanswer", MakeAnswer)
 	http.ListenAndServe(":8080", nil)
-	defer CloseDB()
 }
